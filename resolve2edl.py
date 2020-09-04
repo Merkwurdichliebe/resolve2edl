@@ -63,6 +63,16 @@ edit_full = ['#', 'Reel', 'Match', 'V', 'C', 'Dur', 'Source In', 'Source Out', '
 edit_keep = ['#', 'V', 'Source In', 'Source Out', 'Record In', 'Record Out', 'Name']
 edit_drop = list(set(edit_full) - set(edit_keep))
 
+# Define the order of the columns we need in the final output
+# We have to do this manually because some field names are the same in both tables
+# e.g. Resolution, cf. print(set(mp_full) & set(edit_full))
+columns = ['Name', 'File Type', 'V',
+           'Source In', 'Source Out', 'Record In', 'Record Out', 'Duration TC',
+           'Take', 'Camera #', 'Scene',
+           'Clip Directory', 'Video Codec', 'Audio Codec', 'Frame Rate', 'Resolution',
+           'Keywords', 'Clip Color', 'Flags', 'Shot', 'Comments', 'Description',
+           'Date Modified']
+
 # A list of clip names to exclude
 excluded_clips = ['Fusion Title',
                   'Cross Fade 0 dB',
@@ -110,11 +120,19 @@ edit.drop(edit[edit['#'] == 'M2'].index, inplace=True)
 # .apply can't be used in place so we reassign the result to the File Name column
 #
 
-mp['File Type'] = mp['File Name'].apply(lambda x: os.path.splitext(x)[1][1:])
-mp['File Name'] = mp['File Name'].apply(lambda x: os.path.splitext(x)[0])
 
-# Rename the column in the mediapool
-mp = mp.rename(columns={'File Name': 'Name'})
+def split_ext(filename):
+    try:
+        return os.path.splitext(filename)
+    except Exception as e:
+        print(f'Error ({e})')
+
+
+mp['File Type'] = mp['File Name'].apply(lambda x: split_ext(x)[1][1:])
+mp['Name'] = mp['File Name'].apply(lambda x: split_ext(x)[0])
+
+# We don't need this anymore
+del mp['File Name']
 
 # Create the merged dataframe
 df = pd.merge(edit, mp, on='Name', how='left')
@@ -122,6 +140,9 @@ df = pd.merge(edit, mp, on='Name', how='left')
 #
 # We can now do whatever we want with the data
 #
+
+# Reorder the columns as desired
+df = df[columns]
 
 
 def clips_without_source():
