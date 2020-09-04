@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 """
-resolve2edl reads csv files exported from DaVinci Resolve and merges them
-into a detailed EDL in csv format using pandas.
+resolve2edl reads csv files exported from DaVinci Resolve for both the Media Pool and a timeline's Edit Index
+and merges them into a detailed EDL in CSV format using pandas.
 """
 
 __author__ = "Tal Zana"
