@@ -125,6 +125,6 @@ dmypy.json
 .pyre/
 
 # tz
-.idea/
 .DS_Store
 *.csv
+.idea/

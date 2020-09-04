@@ -26,10 +26,12 @@ pd.set_option('display.width', None)
 #
 # Filenames to read from current directory:
 # MEDIAPOOL: csv file exported from Resolve using "Export Metadata from Selected Media Pool Clips"
-# EDIT_INDEX: csv file expoted from Resolve using right-click on timeline, "Export Edit Index"
+# EDIT_INDEX: csv file exported from Resolve using right-click on timeline, "Export Edit Index"
+# EDL: the name of the csv file to export
 
 MEDIAPOOL = 'MediaPool.csv'
 EDIT_INDEX = 'Montage.csv'
+EDL = 'edl.csv'
 
 #
 # Define the fields we want to keep in the csv files that Resolve creates
@@ -76,6 +78,8 @@ excluded_tracks = ['A11']
 #
 # Import the files and clean them up
 #
+
+print('Generating EDL from CSV files...')
 
 # Import mediapool
 mp = pd.read_csv(MEDIAPOOL, encoding='utf-16')
@@ -139,4 +143,5 @@ def edl():
 
 
 # Write the EDL to a csv file in the current directory
-edl().to_csv('edl.csv')
+edl().to_csv(EDL)
+print(f"Merged Media Pool '{MEDIAPOOL}' and Edit Index '{EDIT_INDEX}' to '{EDL}' ({len(df)} clips).")
