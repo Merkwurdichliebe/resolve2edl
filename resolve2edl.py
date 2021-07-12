@@ -1,168 +1,200 @@
 #!/usr/bin/env python
 
 """
-resolve2edl reads csv files exported from DaVinci Resolve for both the Media Pool and a timeline's Edit Index
-and merges them into a detailed EDL in CSV format using pandas.
+resolve2edl reads csv files exported from DaVinci Resolve
+for both the Media Pool and a timeline's Edit Index
+and merges them into a detailed EDL in Excel format using pandas.
 """
 
 __author__ = "Tal Zana"
-__copyright__ = "Copyright 2020"
+__copyright__ = "Copyright 2021"
 __license__ = "GPL"
-__version__ = "0.1"
+__version__ = "1.0"
 
-import pandas as pd
 import os
+import pandas as pd
 from timecode import Timecode
 
-#
-# For debugging, set pandas display options
-#
+MEDIAPOOL_FILENAME = 'MediaPool.csv'
+EDIT_INDEX_FILENAME = 'Montage.csv'
+OUTPUT_FILENAME = 'edl'
+NULL_SOURCE_SUFFIX = '-no-source'
+INCLUDE_INDEX_IN_EXPORT = False
+FPS = 25
 
-pd.set_option('display.max_columns', None)
-pd.set_option('display.max_rows', None)
-pd.set_option('display.max_colwidth', 120)
-pd.set_option('display.width', None)
+exist_clips_with_null_source = False
 
-#
-# Filenames to read from current directory:
-# MEDIAPOOL: csv file exported from Resolve using "Export Metadata from Selected Media Pool Clips"
-# EDIT_INDEX: csv file exported from Resolve using right-click on timeline, "Export Edit Index"
-# EDL: the name of the csv file to export
+EDIT_COLUMNS_TO_KEEP = [
+    'Name',
+    'Source In',
+    'Source Out',
+    'Record In',
+    'Record Out',
+    'V'
+]
 
-MEDIAPOOL = 'MediaPool.csv'
-EDIT_INDEX = 'Montage.csv'
-EDL = 'edl.csv'
+EDIT_ROWS_TO_IGNORE = [
+    'Fusion Title',
+    'Cross Fade 0 dB',
+    'Cross Dissolve',
+    'Audio Process Stream',
+    'Adjustment Clip',
+    'Dip To Color Dissolve',
+    'Solid Color'
+]
 
-#
-# Define the fields we want to keep in the csv files that Resolve creates
-#
+# We want to keep all audio tracks
+EDIT_TRACKS_TO_EXCLUDE = [
+    'V5',
+    'V6',
+    'V7',
+    'V8',
+    'V9',
+    'V10',
+    'V11',
+    'V12'
+]
 
-# Define the lists of columns we are interested in
-# mp_full: all the columns that Resolve exports
-# mp_keep: the ones we want to keep
-mp_full = ['File Name', 'Clip Directory', 'Duration TC', 'Frame Rate', 'Audio Sample Rate',
-           'Audio Channels', 'Resolution', 'Video Codec', 'Audio Codec', 'Reel Name',
-           'Description', 'Comments', 'Keywords', 'Clip Color', 'Shot', 'Scene', 'Take',
-           'Flags', 'Good Take', 'Shoot Day', 'Date Recorded', 'Camera #', 'Location',
-           'Start TC', 'End TC', 'Start Frame', 'End Frame', 'Frames', 'Bit Depth',
-           'Audio Bit Depth', 'Data Level', 'Date Modified', 'EDL Clip Name', 'Camera Type',
-           'Camera Manufacturer', 'Shutter', 'ISO', 'Camera TC Type', 'Camera Firmware',
-           'Lens Type', 'Lens Notes', 'Camera Aperture', 'Focal Point (mm)', 'Sound Roll #',
-           'Reviewed By - DOP Reviewed']
+MEDIA_COLUMNS_TO_KEEP = [
+    'File Name',
+    'Take',
+    'Camera #',
+    'Scene',
+    'Comments',
+    'Keywords'
+]
 
-mp_keep = ['File Name', 'Clip Directory', 'Duration TC', 'Frame Rate', 'Resolution',
-           'Video Codec', 'Audio Codec', 'Description', 'Comments', 'Keywords',
-           'Clip Color', 'Shot', 'Scene', 'Take', 'Flags', 'Camera #', 'Date Modified']
-mp_drop = list(set(mp_full) - set(mp_keep))
-
-# Do the same for the Edit Index
-edit_full = ['#', 'Reel', 'Match', 'V', 'C', 'Dur', 'Source In', 'Source Out', 'Record In', 'Record Out',
-             'Name', 'Comments', 'Source Start', 'Source End', 'Source Duration', 'Codec', 'Source FPS',
-             'Resolution', 'Color', 'Notes', 'EDL Clip Name', 'Marker Keywords']
-
-edit_keep = ['#', 'V', 'Source In', 'Source Out', 'Record In', 'Record Out', 'Name']
-edit_drop = list(set(edit_full) - set(edit_keep))
-
-# Define the order of the columns we need in the final output
-# We have to do this manually because some field names are the same in both tables
-# e.g. Resolution, cf. print(set(mp_full) & set(edit_full))
-columns = ['Name', 'File Type', 'V',
-           'Source In', 'Source Out', 'Record In', 'Record Out', 'Duration TC',
-           'Take', 'Camera #', 'Scene',
-           'Clip Directory', 'Video Codec', 'Audio Codec', 'Frame Rate', 'Resolution',
-           'Keywords', 'Clip Color', 'Flags', 'Shot', 'Comments', 'Description',
-           'Date Modified']
-
-# A list of clip names to exclude
-excluded_clips = ['Fusion Title',
-                  'Cross Fade 0 dB',
-                  'Cross Dissolve',
-                  'Audio Process Stream',
-                  'Adjustment Clip',
-                  'Dip To Color Dissolve',
-                  'Solid Color']
-
-# A list of track names to exclude
-excluded_tracks = ['A11']
-
-#
-# Import the files and clean them up
-#
-
-print('Generating EDL from CSV files...')
-
-# Import mediapool
-mp = pd.read_csv(MEDIAPOOL, encoding='utf-16')
-
-# Delete empty and unnecessary columns from mp
-# (Resolve exports an empty column for some reason)
-mp = mp.loc[:, ~mp.columns.str.contains('^Unnamed')]
-mp.drop(mp_drop, axis=1, inplace=True)
-
-# import edit index
-edit = pd.read_csv(EDIT_INDEX, encoding='utf-8')
-
-# Delete empty and unnecessary columns from edit
-edit = edit.loc[:, ~edit.columns.str.contains('^Unnamed')]
-edit.drop(edit_drop, axis=1, inplace=True)
-
-# Delete rows with 'M2' which Resolve outputs for some reason
-edit.drop(edit[edit['#'] == 'M2'].index, inplace=True)
-
-#
-# Resolve exports the Media Pool 'File Name' field with an extension,
-# but the Edit Index 'Name' doesn't have an extension.
-# We need to make mediapool.Filename = editindex.Name so we can merge the dataframes.
-#
-# Split the File Name column in mediapool into File Name and File Type
-# os.path.splitext returns the tuple (name, ext)
-# For the File Type we get rid of the first dot character (.jpg => jpg)
-# .apply can't be used in place so we reassign the result to the File Name column
-#
+MEDIA_SOURCES_TO_IGNORE = [
+    'Sound FX Tal',
+    'Tournage',
+    'Musique Bibliothèque',
+    'Musique Tal',
+    'Musique sous droits'
+]
 
 
-def split_ext(filename):
+def get_tc_delta(row):
+    record_in = Timecode(FPS, row['Record In'])
+    record_out = Timecode(FPS, row['Record Out'])
     try:
-        return os.path.splitext(filename)
-    except Exception as e:
-        print(f'Error ({e})')
+        delta = (record_out-record_in)
+    except ValueError:
+        print(
+            f'Timecode problem in clip: IN {record_in} OUT {record_out} '
+            '(duration set to zero)'
+            )
+        delta = 0
+    return delta
 
 
-mp['File Type'] = mp['File Name'].apply(lambda x: split_ext(x)[1][1:])
-mp['Name'] = mp['File Name'].apply(lambda x: split_ext(x)[0])
+print('\nCREATING EDL')
+print('------------\n')
 
-# We don't need this anymore
-del mp['File Name']
+# ------------------------------------------------------------------------------
+# Read the exported CSV files
+# ------------------------------------------------------------------------------
 
-# Create the merged dataframe
-df = pd.merge(edit, mp, on='Name', how='left')
+media = pd.read_csv(MEDIAPOOL_FILENAME, encoding="utf-16")
+edit = pd.read_csv(EDIT_INDEX_FILENAME, encoding="utf-8")
 
-#
-# We can now do whatever we want with the data
-#
+# ------------------------------------------------------------------------------
+# Simplify the Edit dataframe
+# ------------------------------------------------------------------------------
 
-# Reorder the columns as desired
-df = df[columns]
+# Keep only the columns we need
+edit = edit[EDIT_COLUMNS_TO_KEEP]
 
+# Drop rows with no values in 'Name'
+edit = edit[edit['Name'].notna()]
 
-def clips_without_source():
-    # Query the dataframe for rows in which:
-    # Name is not excluded above (dissolves etc),
-    # Track is not excluded (commentary track),
-    # Take is null (Take is used for the Source field in Resolve)
-    # After the conditions we enter the columns we need
-    return df.loc[~df['Name'].isin(excluded_clips) &
-                  ~df['V'].isin(excluded_tracks) &
-                  df['Take'].isnull(),
-                  ['V', 'Name', 'File Type', 'Source In', 'Record In', 'Take']].sort_values('Record In')
+# Drop rows with values in 'Name' matching the list
+edit = edit[~edit['Name'].str.contains(
+    '|'.join(EDIT_ROWS_TO_IGNORE), na=False)]
 
+# Keep only the tracks we need
+edit = edit[~edit['V'].isin(EDIT_TRACKS_TO_EXCLUDE)]
 
-def edl():
-    # Query the dataframe for the full list except excluded clips and tracks
-    return df.loc[~df['Name'].isin(excluded_clips) &
-                  ~df['V'].isin(excluded_tracks)].sort_values('Record In')
+# ------------------------------------------------------------------------------
+# Simplify the Media dataframe
+# ------------------------------------------------------------------------------
 
+# Keep only the columns we need
+media = media[MEDIA_COLUMNS_TO_KEEP]
 
-# Write the EDL to a csv file in the current directory
-edl().to_csv(EDL)
-print(f"Merged Media Pool '{MEDIAPOOL}' and Edit Index '{EDIT_INDEX}' to '{EDL}' ({len(df)} clips).")
+# Rename columns
+media = media.rename({
+    'File Name': 'Name',
+    'Take': 'Source',
+    'Scene': 'Reference',
+    'Camera #': 'Fonds'},
+    axis='columns')
+
+# The Media Pool lists file names with extensions so we remove these,
+# making the file name the same as the "Name" column in the edit dataframe
+media['Name'] = media['Name'].apply(lambda x: os.path.splitext(x)[0])
+
+# ------------------------------------------------------------------------------
+# Join the two dataframes and perform cleanup
+# We need to remove rows with ignored sources *after* the join operation
+# ------------------------------------------------------------------------------
+
+# Join the two dataframes based on the clip name
+df = pd.merge(edit, media, on='Name', how='left')
+
+# Remove rows where Source is in the ignore list
+df = df[~df['Source'].isin(MEDIA_SOURCES_TO_IGNORE)]
+
+# Create a separate dataframe for rows which have no 'Source' entry
+# and remove those rows from the main dataframe
+df_no_source = df[df['Source'].isnull()]
+if len(df_no_source) > 0:
+    exist_clips_with_null_source = True
+    # Drop rows with no values in 'Source'
+    df = df[df['Source'].notna()]
+
+# Calculate a 'Duration' column
+df['Duration'] = df.apply(lambda row: get_tc_delta(row), axis='columns')
+
+# Create a column to mark clips which are used on audio tracks
+df['Track'] = df['V'].apply(lambda x: 'AUDIO' if x[0] == 'A' else '')
+
+# Drop the index column
+df = df.reset_index(drop=True)
+
+# Dataframe should already be sorted by 'Record In'
+# but we make sure it is
+df = df.sort_values('Record In')
+
+# Write the EDL to an Excel file in the current directory
+df.to_excel(OUTPUT_FILENAME + '.xlsx',
+            index=INCLUDE_INDEX_IN_EXPORT)
+
+# Output a separate file for clips with null sources
+if (exist_clips_with_null_source):
+    f = OUTPUT_FILENAME + NULL_SOURCE_SUFFIX + '.xlsx'
+    df_no_source.to_excel(f, index=INCLUDE_INDEX_IN_EXPORT)
+    print('\nNULL SOURCES')
+    print('--------------')
+    print(f'\n{len(df_no_source)} clips with no source assigned')
+    print(f'Exported to separate file: {f}')
+
+# ------------------------------------------------------------------------------
+# Console output
+# ------------------------------------------------------------------------------
+
+print('\nHEAD AND TAIL OF EDL')
+print('--------------------')
+print(df)
+print('\nEDL STATS')
+print('---------')
+print(df.describe())
+print('\nOUTPUT')
+print('------\n')
+# Display message
+print(
+    f"Merged Media Pool '{MEDIAPOOL_FILENAME}' "
+    f"and Edit Index '{EDIT_INDEX_FILENAME}'\n"
+    f"to '{OUTPUT_FILENAME}.csv' & '{OUTPUT_FILENAME}.xlsx'.\n"
+    f"(Total {len(df)} clips)\n"
+    f"Done.\n"
+    )
