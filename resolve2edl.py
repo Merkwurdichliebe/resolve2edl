@@ -165,6 +165,10 @@ df = df.reset_index(drop=True)
 # but we make sure it is
 df = df.sort_values('Record In')
 
+# ------------------------------------------------------------------------------
+# File output
+# ------------------------------------------------------------------------------
+
 # Write the EDL to an Excel file in the current directory
 df.to_excel(OUTPUT_FILENAME + '.xlsx',
             index=INCLUDE_INDEX_IN_EXPORT)
