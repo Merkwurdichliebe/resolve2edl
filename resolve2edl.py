@@ -15,6 +15,7 @@ import os
 import pandas as pd
 from timecode import Timecode
 
+# Only include these metadata fields in the Edit Index
 EDIT_COLUMNS_TO_KEEP = [
     'Name',
     'Source In',
@@ -24,6 +25,7 @@ EDIT_COLUMNS_TO_KEEP = [
     'V'
 ]
 
+# Exclude these clip types from the Edit Index
 EDIT_ROWS_TO_IGNORE = [
     'Fusion Title',
     'Cross Fade 0 dB',
@@ -34,7 +36,7 @@ EDIT_ROWS_TO_IGNORE = [
     'Solid Color'
 ]
 
-# We want to keep all audio tracks
+# Exclude these tracks from the Edit Index
 EDIT_TRACKS_TO_EXCLUDE = [
     'V5',
     'V6',
@@ -46,6 +48,7 @@ EDIT_TRACKS_TO_EXCLUDE = [
     'V12'
 ]
 
+# Only include these metadata fiels in the Media Pool
 MEDIA_COLUMNS_TO_KEEP = [
     'File Name',
     'Take',
@@ -55,6 +58,7 @@ MEDIA_COLUMNS_TO_KEEP = [
     'Keywords'
 ]
 
+# Exclude these sources from the Media Pool
 MEDIA_SOURCES_TO_IGNORE = [
     'Sound FX Tal',
     'Tournage',
@@ -62,6 +66,14 @@ MEDIA_SOURCES_TO_IGNORE = [
     'Musique Tal',
     'Musique sous droits'
 ]
+
+# Rename these Media Pool metadata fields
+RENAME_METADATA_FIELDS = {
+    'File Name': 'Name',
+    'Take': 'Source',
+    'Scene': 'Reference',
+    'Camera #': 'Fonds'
+    }
 
 
 class Resolve():
@@ -152,12 +164,7 @@ class Resolve():
         m = m[MEDIA_COLUMNS_TO_KEEP]
 
         # Rename columns
-        m = m.rename({
-            'File Name': 'Name',
-            'Take': 'Source',
-            'Scene': 'Reference',
-            'Camera #': 'Fonds'},
-            axis='columns')
+        m = m.rename(RENAME_METADATA_FIELDS, axis='columns')
 
         # The Media Pool lists file names with extensions so we remove these,
         # making the file name the same as the "Name" column
