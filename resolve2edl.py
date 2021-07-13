@@ -9,18 +9,11 @@ and merges them into a detailed EDL in Excel format using pandas.
 __author__ = "Tal Zana"
 __copyright__ = "Copyright 2021"
 __license__ = "GPL"
-__version__ = "1.1"
+__version__ = "1.0"
 
 import os
 import pandas as pd
 from timecode import Timecode
-
-MEDIAPOOL_FILENAME = 'MediaPool.csv'
-EDIT_INDEX_FILENAME = 'Montage.csv'
-OUTPUT_FILENAME = 'edl'
-NULL_SOURCE_SUFFIX = '-no-source'
-INCLUDE_INDEX_IN_EXPORT = False
-FPS = 25
 
 EDIT_COLUMNS_TO_KEEP = [
     'Name',
@@ -72,20 +65,29 @@ MEDIA_SOURCES_TO_IGNORE = [
 
 
 class Resolve():
-    def __init__(self, media, edit, output):
-        self.exist_clips_with_null_source = False
-        self.flag_duration_issue = False
+    def __init__(self, media, edit, output, fps=25):
         self.media_filename = media
         self.edit_filename = edit
         self.output_filename = output
+        self.fps = fps
 
+        # Flags and options
+        self.include_idx_in_export = False
+        self.exist_clips_with_null_source = False
+        self.flag_duration_issue = False
+        self.null_source_suffix = '-no-source'
+
+        # Read the files and display basic info
         self.read_files()
         self.show_info()
         self.show_tracks()
 
+        # Remove unneeded information from both dataframes
         self.prepare_edit()
         self.prepare_media()
 
+        # Display additional information,
+        # merge both dataframes and export to new file
         self.show_filetypes()
         self.join_tables()
         self.write_file()
@@ -98,13 +100,13 @@ class Resolve():
 
     def show_info(self):
         # Calculate timeline length from start and end TC
-        timeline_start_tc = Timecode(FPS, self.edit.iloc[0]['Record In'])
-        timeline_end_tc = Timecode(FPS, self.edit.iloc[-1]['Record Out'])
+        timeline_start_tc = Timecode(self.fps, self.edit.iloc[0]['Record In'])
+        timeline_end_tc = Timecode(self.fps, self.edit.iloc[-1]['Record Out'])
         timeline_duration_tc = timeline_end_tc - timeline_start_tc
 
         # Output to console
         self.print_title('timeline information')
-        self.print_c('Frame rate', str(FPS) + ' fps')
+        self.print_c('Frame rate', str(self.fps) + ' fps')
         self.print_c('Timeline start TC', timeline_start_tc)
         self.print_c('Timeline end TC', timeline_end_tc)
         self.print_c('Timeline duration', timeline_duration_tc)
@@ -179,7 +181,7 @@ class Resolve():
         # and remove those rows from the main dataframe
         self.edl_no_source = edl[edl['Source'].isnull()]
         if len(self.edl_no_source) > 0:
-            exist_clips_with_null_source = True
+            self.exist_clips_with_null_source = True
             # Drop rows with no values in 'Source'
             edl = edl[edl['Source'].notna()]
 
@@ -206,13 +208,13 @@ class Resolve():
 
     def write_file(self):
         # Write the EDL to an Excel file in the current directory
-        self.edl.to_excel(OUTPUT_FILENAME + '.xlsx',
-                          index=INCLUDE_INDEX_IN_EXPORT)
+        self.edl.to_excel(self.output_filename + '.xlsx',
+                          index=self.include_idx_in_export)
 
         # Output a separate file for clips with null sources
         if (self.exist_clips_with_null_source):
-            f = OUTPUT_FILENAME + NULL_SOURCE_SUFFIX + '.xlsx'
-            self.edl_no_source.to_excel(f, index=INCLUDE_INDEX_IN_EXPORT)
+            f = self.output_filename + self.null_source_suffix + '.xlsx'
+            self.edl_no_source.to_excel(f, index=self.include_idx_in_export)
             self.print_title('null sources')
             print(f'{len(self.edl_no_source)} clips with no source assigned')
             print(f'Exported to separate file: {f}')
@@ -221,8 +223,8 @@ class Resolve():
         self.print_title('output')
         print(
             f"Merged Media Pool '{self.media_filename}' "
-            f"and Edit Index '{self.edit_filename}'\n"
-            f"to '{self.output_filename}.csv' & '{OUTPUT_FILENAME}.xlsx'.\n"
+            f"and Edit Index '{self.edit_filename}' "
+            f"to '{self.output_filename}.xlsx'.\n"
             f"(Total {len(self.edl)} clips)"
             )
 
@@ -240,8 +242,8 @@ class Resolve():
         print(self.media['Extension'].value_counts().to_string())
 
     def get_tc_delta(self, row):
-        record_in = Timecode(FPS, row['Record In'])
-        record_out = Timecode(FPS, row['Record Out'])
+        record_in = Timecode(self.fps, row['Record In'])
+        record_out = Timecode(self.fps, row['Record Out'])
         try:
             delta = (record_out-record_in)
         except ValueError:
@@ -263,6 +265,4 @@ class Resolve():
         print('-' * len(s) + '\n')
 
 
-r = Resolve(MEDIAPOOL_FILENAME,
-            EDIT_INDEX_FILENAME,
-            OUTPUT_FILENAME)
+r = Resolve('MediaPool.csv', 'Montage.csv', 'edl')
