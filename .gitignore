@@ -127,4 +127,6 @@ dmypy.json
 # tz
 .DS_Store
 *.csv
+*.xlsx
 .idea/
+
